@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta content="text/html; charset=UTF-8" http-equiv="content-type">
+    <title></title>
+    <meta content="noindex" name="robots">
+    <meta content="noindex" name="googlebot">
+</head>
+<body>
+<script type="text/javascript">
+    /* global console */
+    (function(){
+        'use strict';
+
+        /*
+         * Add polifill for ie8 lack of indexOf
+         */
+        if (!Array.prototype.indexOf) {
+            Array.prototype.indexOf = function(obj, start) {
+                for (var i = (start || 0), j = this.length; i < j; i++) {
+                    if (this[i] === obj) { return i; }
+                }
+                return -1;
+            }
+        }
+
+        function hasLocalStorageSupport() {
+            var storage = window.localStorage;
+
+            if (storage) {
+                var key = '__localstoragetest__';
+
+                try {
+                    storage.setItem(key, key);
+                    storage.removeItem(key);
+
+                    return true;
+                }
+                catch (_error) {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        function safeJsonParse(_data) {
+            try {
+                return (typeof _data === 'string') ? JSON.parse(_data) : _data;
+            } catch (_error) {
+                console.error('xStorage: cannot parse JSON data: ' + _error.message);
+            }
+        }
+
+        function xStorage() {
+            if (window.self === window.top) {
+                console.error('xStorage: please include in iframe.');
+
+                return;
+            }
+
+            if (!hasLocalStorageSupport() || !'postMessage' in window) {
+                console.error('xStorage: localStorage is disabled.');
+
+                return;
+            }
+
+            parent.postMessage('ready', '*');
+
+            var url = 'http://' + window.location.host;
+            var urlSsl = 'https://' + window.location.host;
+            var frameOrigin = window.name || false;
+
+            var onMessage = function (_event) {
+
+                function send(_data) {
+                    _event.source.postMessage(JSON.stringify({
+                        method: data.method,
+                        timestamp: data.timestamp,
+                        data: _data
+                    }), _event.origin);
+                }
+
+                if (_event.origin === url || _event.origin === urlSsl || _event.origin.indexOf(frameOrigin) !== -1) {
+                    var data = safeJsonParse(_event.data);
+
+                    if (data && data.method) {
+
+                        switch (data.method) {
+                            case 'load':
+                                return send(safeJsonParse(localStorage[data.params.key] || null));
+                            case 'save':
+                                localStorage[data.params.key] = JSON.stringify(data.params.value);
+
+                                return send(data.params.value);
+                            default:
+                                console.error('xStorage: Unknown method: ' + data.method);
+                                break;
+                        }
+                    }
+                }
+            };
+
+            if (window.addEventListener) {
+                window.addEventListener('message', onMessage, false);
+            }
+            else if (window.attachEvent) {
+                window.attachEvent('onmessage', onMessage);
+            }
+        }
+
+        xStorage();
+    })();
+</script>
+
+
+</body>
+</html>
