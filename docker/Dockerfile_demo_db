@@ -1,6 +1,4 @@
 FROM postgres:17.6-trixie
-ARG SQL_ARCHIVE
-SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
   --mount=type=cache,target=/var/lib/apt,sharing=locked <<EOR
 apt-get update && apt-get install -y --no-install-recommends \
@@ -8,22 +6,9 @@ unzip wget
 rm -rf /var/lib/apt/lists/*
 EOR
 
-WORKDIR /
-RUN <<EOR
-wget --no-check-certificate https://edu.postgrespro.ru/$SQL_ARCHIVE
-export SQL_DATA_FILE=$(unzip -Z -1 $SQL_ARCHIVE)
-unzip $SQL_ARCHIVE && rm -f $SQL_ARCHIVE
-cat >/docker-entrypoint-initdb.d/init-demo-db.sh <<-EOF
-    #!/usr/bin/env bash
-    set -e
-
-    psql -f /$SQL_DATA_FILE -U postgres
-    EOF
-docker-entrypoint.sh postgres &>/postgres.log &
-echo 'Initializing bookings.demo database'
-until grep 'PostgreSQL init process complete; ready for start up.' /postgres.log; do echo '.' && sleep 5; done
-echo 'bookings.demo database is initialized successfully'
-rm -f /postgres.log
-rm -f /\$SQL_DATA_FILE && unset SQL_DATA_FILE
-su postgres -c 'pg_ctl -D $PGDATA -m fast -w stop'
+RUN --mount=type=bind,source=demo_db,target=mount,z <<EOR
+unzip mount/demo-small.sql.zip
+mv demo-small.sql /docker-entrypoint-initdb.d/
+# database configuration
+sed -i -e 's/^#random_page_cost = 4.0/random_page_cost = 1.1/g' /usr/share/postgresql/postgresql.conf.sample
 EOR

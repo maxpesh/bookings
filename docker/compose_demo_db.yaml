@@ -1,11 +1,11 @@
 services:
   postgres-demo-db:
+    container_name: postgres-demo-db
     build:
+      tags:
+        - "postgres-demo-db:latest"
       context: .
       dockerfile: Dockerfile_demo_db
-      args:
-        # one of: demo-small.zip, demo-medium.zip, demo-big.zip
-        SQL_ARCHIVE: demo-big.zip
     ports:
       - "5432:5432"
     environment:
