@@ -15,6 +15,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 
+import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.SECONDS;
+
 @org.springframework.stereotype.Repository
 class Repository implements AutoCloseable {
     private final HikariDataSource dataSource;
@@ -26,6 +29,14 @@ class Repository implements AutoCloseable {
         conf.setJdbcUrl(properties.getProperty("url"));
         conf.setUsername(properties.getProperty("username"));
         conf.setPassword(properties.getProperty("password"));
+        conf.setAutoCommit(false);
+        conf.setMaximumPoolSize(10);
+        conf.setConnectionTimeout(SECONDS.toMillis(30));
+        conf.setIdleTimeout(MINUTES.toMillis(10));
+        conf.setKeepaliveTime(MINUTES.toMillis(2));
+        conf.setMaxLifetime(MINUTES.toMillis(30));
+        conf.setInitializationFailTimeout(1); // fail fast
+        conf.setValidationTimeout(SECONDS.toMillis(5));
         dataSource = new HikariDataSource(conf);
     }
 
@@ -35,9 +46,9 @@ class Repository implements AutoCloseable {
             try (var stmt = conn.prepareStatement("""
                     select airport_code, airport_name, city, coordinates, timezone
                     from airports
-                    where airport_name ilike '%%%s%%' -- airportName
-                    limit %d -- limit
-                    """.formatted(airportName, limit))) {
+                    where airport_code ilike '%%%s%%' or airport_name ilike '%%%s%%' or city ilike '%%%s%%'
+                    limit %d
+                    """.formatted(airportName, airportName, airportName, limit))) {
                 var rs = stmt.executeQuery();
                 printWarnings(stmt.getWarnings(), rs.getWarnings());
                 while (rs.next()) {
@@ -52,7 +63,7 @@ class Repository implements AutoCloseable {
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException();
+            throw new RuntimeException(e);
         }
         return airports;
     }
@@ -61,14 +72,13 @@ class Repository implements AutoCloseable {
         try {
             var conn = dataSource.getConnection();
             printWarnings(conn.getWarnings());
-            conn.setAutoCommit(false);
             try (var stmt = conn.prepareStatement("set bookings.lang=%s"
                     .formatted(properties.getProperty("bookings.lang")))) {
                 stmt.executeUpdate();
             }
             return conn;
         } catch (SQLException e) {
-            throw new RuntimeException();
+            throw new RuntimeException(e);
         }
     }
 
