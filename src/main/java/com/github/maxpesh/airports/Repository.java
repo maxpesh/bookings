@@ -46,9 +46,13 @@ class Repository implements AutoCloseable {
             try (var stmt = conn.prepareStatement("""
                     select airport_code, airport_name, city, coordinates, timezone
                     from airports
-                    where airport_code ilike '%%%s%%' or airport_name ilike '%%%s%%' or city ilike '%%%s%%'
-                    limit %d
-                    """.formatted(airportName, airportName, airportName, limit))) {
+                    where airport_code ilike ? or airport_name ilike ? or city ilike ?
+                    limit ?
+                    """)) {
+                stmt.setString(1, "%" + airportName + "%");
+                stmt.setString(2, "%" + airportName + "%");
+                stmt.setString(3, "%" + airportName + "%");
+                stmt.setInt(4, limit);
                 var rs = stmt.executeQuery();
                 printWarnings(stmt.getWarnings(), rs.getWarnings());
                 while (rs.next()) {
