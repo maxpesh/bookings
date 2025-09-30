@@ -16,12 +16,14 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
+import java.util.logging.Logger;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 @org.springframework.stereotype.Repository
 class Repository implements AutoCloseable {
+    private static final Logger logger = Logger.getLogger(Repository.class.getName());
     private final HikariDataSource dataSource;
 
     Repository() {
@@ -51,7 +53,7 @@ class Repository implements AutoCloseable {
         try (var conn = dataSource.getConnection()) {
             try (var stmt = conn.createStatement()) {
                 stmt.executeUpdate("set plan_cache_mode = 'force_generic_plan'");
-                printWarnings(conn.getWarnings(), stmt.getWarnings());
+                logWarnings(conn.getWarnings(), stmt.getWarnings());
             }
             try (var stmt = conn.prepareStatement("""
                     select airport_code, airport_name, city, coordinates, timezone
@@ -66,7 +68,7 @@ class Repository implements AutoCloseable {
                 stmt.setString(3, "%" + airportName + "%");
                 stmt.setInt(4, limit);
                 var rs = stmt.executeQuery();
-                printWarnings(conn.getWarnings(), stmt.getWarnings(), rs.getWarnings());
+                logWarnings(conn.getWarnings(), stmt.getWarnings(), rs.getWarnings());
                 while (rs.next()) {
                     var code = rs.getString("airport_code");
                     var name = rs.getString("airport_name");
@@ -107,18 +109,11 @@ class Repository implements AutoCloseable {
         dataSource.close();
     }
 
-    public static void printWarnings(SQLWarning... warnings) {
+    public static void logWarnings(SQLWarning... warnings) {
         if (warnings != null) {
             for (var warning : warnings) {
-                if (warning != null) {
-                    System.out.println("\n---Warning---\n");
-                }
                 while (warning != null) {
-                    System.out.println("Message: " + warning.getMessage());
-                    System.out.println("SQLState: " + warning.getSQLState());
-                    System.out.print("Vendor error code: ");
-                    System.out.println(warning.getErrorCode());
-                    System.out.println();
+                    logger.warning("Message: %s, SQLState: %s, Vendor error code: %d");
                     warning = warning.getNextWarning();
                 }
             }
