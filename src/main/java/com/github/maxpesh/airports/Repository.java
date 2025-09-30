@@ -2,8 +2,10 @@ package com.github.maxpesh.airports;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.postgresql.PGStatement;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.postgresql.geometric.PGpoint;
+import org.postgresql.jdbc.PreferQueryMode;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -28,28 +30,37 @@ class Repository implements AutoCloseable {
         pgDataSource.setURL(properties.getProperty("url"));
         pgDataSource.setUser(properties.getProperty("username"));
         pgDataSource.setPassword(properties.getProperty("password"));
+        pgDataSource.setApplicationName("bookings");
+        pgDataSource.setPrepareThreshold(5); // default
+        pgDataSource.setPreferQueryMode(PreferQueryMode.EXTENDED_FOR_PREPARED);
         var conf = new HikariConfig();
         conf.setDataSource(pgDataSource);
         conf.setAutoCommit(false);
         conf.setMaximumPoolSize(10);
-        conf.setConnectionTimeout(SECONDS.toMillis(30));
-        conf.setIdleTimeout(MINUTES.toMillis(10));
-        conf.setKeepaliveTime(MINUTES.toMillis(2));
-        conf.setMaxLifetime(MINUTES.toMillis(30));
+        conf.setConnectionTimeout(SECONDS.toMillis(30)); // default
+        conf.setIdleTimeout(MINUTES.toMillis(10)); // default
+        conf.setKeepaliveTime(MINUTES.toMillis(2)); // default
+        conf.setMaxLifetime(MINUTES.toMillis(30)); // default
         conf.setInitializationFailTimeout(1); // fail fast
-        conf.setValidationTimeout(SECONDS.toMillis(5));
+        conf.setValidationTimeout(SECONDS.toMillis(5)); // default
         dataSource = new HikariDataSource(conf);
     }
 
     List<Airport> getAirportsLike(String airportName, int limit) {
         var airports = new ArrayList<Airport>();
         try (var conn = dataSource.getConnection()) {
+            try (var stmt = conn.createStatement()) {
+                stmt.executeUpdate("set plan_cache_mode = 'force_generic_plan'");
+                printWarnings(conn.getWarnings(), stmt.getWarnings());
+            }
             try (var stmt = conn.prepareStatement("""
                     select airport_code, airport_name, city, coordinates, timezone
                     from airports
                     where airport_code ilike ? or airport_name ilike ? or city ilike ?
                     limit ?
                     """)) {
+                var pgStmt = stmt.unwrap(PGStatement.class);
+                pgStmt.setPrepareThreshold(1); // prepare on the server immediately
                 stmt.setString(1, "%" + airportName + "%");
                 stmt.setString(2, "%" + airportName + "%");
                 stmt.setString(3, "%" + airportName + "%");
