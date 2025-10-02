@@ -10,9 +10,12 @@ import org.springframework.web.servlet.function.*;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 @Configuration
 class WebConfig {
+    private static final Logger logger = Logger.getLogger(WebConfig.class.getName());
     private Instant lastModified = Instant.now();
     private String eTag = "deadbeef";
 
@@ -35,6 +38,7 @@ class WebConfig {
                             .headers(this::setCommonHeaders)
                             .body(repo.getAirportsLike(airport, matches));
                 })
+                .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();
     }
 
@@ -85,5 +89,12 @@ class WebConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setLastModified(lastModified);
         headers.setETag(eTag);
+    }
+
+    private static ServerResponse logStackTrace(Throwable throwable, ServerRequest request) {
+        logger.log(Level.SEVERE, throwable, throwable::getMessage);
+        return ServerResponse.
+                status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .build();
     }
 }

@@ -81,6 +81,8 @@ class Repository implements AutoCloseable {
                 }
             }
         } catch (SQLException e) {
+            // TODO maybe we should handle some specific PostgresQL error codes
+            // TODO maybe handle HikariCP specific exceptions (like timeouts)
             throw new RuntimeException(e);
         }
         return airports;
@@ -97,7 +99,7 @@ class Repository implements AutoCloseable {
                 props.load(in);
             }
         } catch (FileNotFoundException e) {
-            assert false; // Should never fall here
+            throw new AssertionError("Invariant was violated: File database.properties should be present in the classpath");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
