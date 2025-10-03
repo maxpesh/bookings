@@ -24,7 +24,7 @@ class WebConfig {
         return RouterFunctions.route()
                 .filter(this::ifNoneMatch)
                 .filter(this::ifNotModifiedSince)
-                .GET("/airports/lookup", request -> {
+                .GET("{lang}/airports/lookup", request -> {
                     if (requestIsMalformed(request)) {
                         return ServerResponse
                                 .badRequest()
@@ -32,11 +32,12 @@ class WebConfig {
                                 .body("Malformed request syntax. " +
                                         "Expects: airports/lookup?airport=<string>&matches=<positive int>");
                     }
+                    String lang = request.pathVariable("lang");
                     String airport = request.param("airport").get();
                     int matches = Integer.parseInt(request.param("matches").get());
                     return ServerResponse.ok()
                             .headers(this::setCommonHeaders)
-                            .body(repo.getAirportsLike(airport, matches));
+                            .body(repo.getAirportsLike(airport, matches, lang));
                 })
                 .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();

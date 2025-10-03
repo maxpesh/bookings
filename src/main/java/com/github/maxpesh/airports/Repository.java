@@ -2,6 +2,7 @@ package com.github.maxpesh.airports;
 
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import org.postgresql.PGConnection;
 import org.postgresql.PGStatement;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.postgresql.geometric.PGpoint;
@@ -10,6 +11,8 @@ import org.postgresql.jdbc.PreferQueryMode;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.sql.BatchUpdateException;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
 import java.time.ZoneId;
@@ -48,11 +51,17 @@ class Repository implements AutoCloseable {
         dataSource = new HikariDataSource(conf);
     }
 
-    List<Airport> getAirportsLike(String airportName, int limit) {
+    List<Airport> getAirportsLike(String airportName, int limit, String lang) {
         var airports = new ArrayList<Airport>();
         try (var conn = dataSource.getConnection()) {
-            try (var stmt = conn.createStatement()) {
-                stmt.executeUpdate("set plan_cache_mode = 'force_generic_plan'");
+            // Force Extended Query protocol by using conn.prepareStatement(). Quires will be pipelined
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                    set plan_cache_mode = 'force_generic_plan';\
+                    set bookings.lang = '%s'"""
+                    .formatted(lang))) {
+                var pgStmt = stmt.unwrap(PGStatement.class);
+                pgStmt.setPrepareThreshold(1); // prepare on the server immediately
+                stmt.executeUpdate();
                 logWarnings(conn.getWarnings(), stmt.getWarnings());
             }
             try (var stmt = conn.prepareStatement("""
@@ -81,7 +90,7 @@ class Repository implements AutoCloseable {
                 }
             }
         } catch (SQLException e) {
-            // TODO maybe we should handle some specific PostgresQL error codes
+            // TODO maybe handle some specific PostgresQL error codes
             // TODO maybe handle HikariCP specific exceptions (like timeouts)
             throw new RuntimeException(e);
         }
@@ -99,7 +108,7 @@ class Repository implements AutoCloseable {
                 props.load(in);
             }
         } catch (FileNotFoundException e) {
-            throw new AssertionError("Invariant was violated: File database.properties should be present in the classpath");
+            throw new AssertionError("Invariant was violated: File database.properties is present in the classpath");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
