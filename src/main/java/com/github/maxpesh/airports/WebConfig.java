@@ -3,6 +3,7 @@ package com.github.maxpesh.airports;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.function.*;
@@ -21,39 +22,41 @@ class WebConfig {
     @Bean
     RouterFunction<ServerResponse> router(Repository repo) {
         return RouterFunctions.route()
-                .GET("{lang}/airports/lookup", WebConfig::ifLangIsSupported, request -> {
-                    if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
-                        String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
-                        if (reqETag.equals(eTag)) {
-                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                .path("{lang}/airports/lookup", builder -> builder
+                        .GET(WebConfig::ifLangIsSupported, request -> {
+                            if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
+                                String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
+                                if (reqETag.equals(eTag)) {
+                                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                                            .headers(this::setCommonHeaders)
+                                            .build();
+                                }
+                            }
+                            if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
+                                Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
+                                if (reqLastModified.equals(lastModified)) {
+                                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                                            .headers(this::setCommonHeaders)
+                                            .build();
+                                }
+                            }
+                            if (requestIsMalformed(request)) {
+                                return ServerResponse
+                                        .badRequest()
+                                        .headers(this::setCommonHeaders)
+                                        .body("Malformed request syntax. " +
+                                                "Expects: airports/lookup?airport=<string>&matches=<positive int>");
+                            }
+                            String lang = request.pathVariable("lang");
+                            String airport = request.param("airport").get();
+                            int matches = Integer.parseInt(request.param("matches").get());
+                            return ServerResponse.ok()
                                     .headers(this::setCommonHeaders)
-                                    .build();
-                        }
-                    }
-                    if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
-                        Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
-                        if (reqLastModified.equals(lastModified)) {
-                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                                    .headers(this::setCommonHeaders)
-                                    .build();
-                        }
-                    }
-                    if (requestIsMalformed(request)) {
-                        return ServerResponse
-                                .badRequest()
-                                .headers(this::setCommonHeaders)
-                                .body("Malformed request syntax. " +
-                                        "Expects: airports/lookup?airport=<string>&matches=<positive int>");
-                    }
-                    String lang = request.pathVariable("lang");
-                    String airport = request.param("airport").get();
-                    int matches = Integer.parseInt(request.param("matches").get());
-                    return ServerResponse.ok()
-                            .headers(this::setCommonHeaders)
-                            .body(repo.getAirportsLike(airport, matches, lang));
-                })
-                .onError(Throwable.class, WebConfig::logStackTrace)
-                .build();
+                                    .body(repo.getAirportsLike(airport, matches, lang));
+                        })
+                        .route(RequestPredicates.all(), WebConfig::methodNotAllowed)
+                        .onError(Throwable.class, WebConfig::logStackTrace)
+                        .build()).build();
     }
 
     private static boolean ifLangIsSupported(ServerRequest request) {
@@ -78,6 +81,12 @@ class WebConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setLastModified(lastModified);
         headers.setETag(eTag);
+    }
+
+    private static ServerResponse methodNotAllowed(ServerRequest request) {
+        return ServerResponse.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .allow(HttpMethod.GET)
+                .build();
     }
 
     private static ServerResponse logStackTrace(Throwable throwable, ServerRequest request) {
