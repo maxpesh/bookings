@@ -89,6 +89,7 @@ class Repository implements AutoCloseable {
                     airports.add(airport);
                 }
             }
+            conn.commit();
         } catch (SQLException e) {
             // TODO maybe handle some specific PostgresQL error codes
             // TODO maybe handle HikariCP specific exceptions (like timeouts)

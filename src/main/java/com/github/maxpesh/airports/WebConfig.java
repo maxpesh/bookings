@@ -8,7 +8,6 @@ import org.springframework.http.MediaType;
 import org.springframework.web.servlet.function.*;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -22,9 +21,23 @@ class WebConfig {
     @Bean
     RouterFunction<ServerResponse> router(Repository repo) {
         return RouterFunctions.route()
-                .filter(this::ifNoneMatch)
-                .filter(this::ifNotModifiedSince)
-                .GET("{lang}/airports/lookup", request -> {
+                .GET("{lang}/airports/lookup", WebConfig::ifLangIsSupported, request -> {
+                    if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
+                        String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
+                        if (reqETag.equals(eTag)) {
+                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                                    .headers(this::setCommonHeaders)
+                                    .build();
+                        }
+                    }
+                    if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
+                        Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
+                        if (reqLastModified.equals(lastModified)) {
+                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                                    .headers(this::setCommonHeaders)
+                                    .build();
+                        }
+                    }
                     if (requestIsMalformed(request)) {
                         return ServerResponse
                                 .badRequest()
@@ -43,34 +56,9 @@ class WebConfig {
                 .build();
     }
 
-    private ServerResponse ifNoneMatch(ServerRequest request, HandlerFunction<ServerResponse> next) throws Exception {
-        List<String> values = request.headers().header(HttpHeaders.IF_NONE_MATCH);
-        if (values.isEmpty()) {
-            return next.handle(request);
-        }
-        String eTag = values.get(0);
-        if (eTag.equals(this.eTag)) {
-            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                    .headers(this::setCommonHeaders)
-                    .build();
-        } else {
-            return next.handle(request);
-        }
-    }
-
-    private ServerResponse ifNotModifiedSince(ServerRequest request, HandlerFunction<ServerResponse> next) throws Exception {
-        List<String> values = request.headers().header(HttpHeaders.IF_MODIFIED_SINCE);
-        if (values.isEmpty()) {
-            return next.handle(request);
-        }
-        String ifModifiedSince = values.get(0);
-        if (Instant.parse(ifModifiedSince).equals(lastModified)) {
-            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                    .headers(this::setCommonHeaders)
-                    .build();
-        } else {
-            return next.handle(request);
-        }
+    private static boolean ifLangIsSupported(ServerRequest request) {
+        String lang = request.pathVariable("lang");
+        return lang.equals("en") || lang.equals("ru");
     }
 
     private static boolean requestIsMalformed(ServerRequest request) {
