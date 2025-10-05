@@ -2,12 +2,10 @@ package com.github.maxpesh.airports;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
+import org.springframework.http.*;
 import org.springframework.web.servlet.function.*;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.logging.Level;
@@ -81,6 +79,8 @@ class WebConfig {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setLastModified(lastModified);
         headers.setETag(eTag);
+        headers.setCacheControl(CacheControl
+                .maxAge(Duration.ofHours(1)));
     }
 
     private static ServerResponse methodNotAllowed(ServerRequest request) {
