@@ -7,6 +7,7 @@ import org.springframework.web.servlet.function.*;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -25,7 +26,7 @@ class WebConfig {
                         String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
                         if (reqETag.equals(eTag)) {
                             return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                                    .headers(this::setCommonHeaders)
+                                    .headers(this::cacheControl)
                                     .build();
                         }
                     }
@@ -33,23 +34,27 @@ class WebConfig {
                         Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
                         if (reqLastModified.equals(lastModified)) {
                             return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                                    .headers(this::setCommonHeaders)
+                                    .headers(this::cacheControl)
                                     .build();
                         }
                     }
                     if (requestIsMalformed(request)) {
                         return ServerResponse
                                 .badRequest()
-                                .headers(this::setCommonHeaders)
                                 .body("Malformed request syntax. " +
                                         "Expects: airports/lookup?airport=<string>&matches=<positive int>");
                     }
                     String lang = request.pathVariable("lang");
                     String airport = request.param("airport").get();
                     int matches = Integer.parseInt(request.param("matches").get());
+                    List<Airport> airports = repo.getAirportsLike(airport, matches, lang);
+                    if (airports.isEmpty()) {
+                        return ServerResponse.noContent().build();
+                    }
                     return ServerResponse.ok()
-                            .headers(this::setCommonHeaders)
-                            .body(repo.getAirportsLike(airport, matches, lang));
+                            .headers(this::cacheControl)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(airports);
                 })
                 .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();
@@ -73,8 +78,7 @@ class WebConfig {
         return false;
     }
 
-    private void setCommonHeaders(HttpHeaders headers) {
-        headers.setContentType(MediaType.APPLICATION_JSON);
+    private void cacheControl(HttpHeaders headers) {
         headers.setLastModified(lastModified);
         headers.setETag(eTag);
         headers.setCacheControl(CacheControl
