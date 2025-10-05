@@ -54,7 +54,6 @@ class Repository implements AutoCloseable {
     List<Airport> getAirportsLike(String airportName, int limit, String lang) {
         var airports = new ArrayList<Airport>();
         try (var conn = dataSource.getConnection()) {
-            // Force Extended Query protocol by using conn.prepareStatement(). Quires will be pipelined
             try (PreparedStatement stmt = conn.prepareStatement("""
                     set plan_cache_mode = 'force_generic_plan';\
                     set bookings.lang = '%s'"""

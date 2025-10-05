@@ -20,41 +20,39 @@ class WebConfig {
     @Bean
     RouterFunction<ServerResponse> router(Repository repo) {
         return RouterFunctions.route()
-                .path("{lang}/airports/lookup", builder -> builder
-                        .GET(WebConfig::ifLangIsSupported, request -> {
-                            if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
-                                String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
-                                if (reqETag.equals(eTag)) {
-                                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                                            .headers(this::setCommonHeaders)
-                                            .build();
-                                }
-                            }
-                            if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
-                                Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
-                                if (reqLastModified.equals(lastModified)) {
-                                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                                            .headers(this::setCommonHeaders)
-                                            .build();
-                                }
-                            }
-                            if (requestIsMalformed(request)) {
-                                return ServerResponse
-                                        .badRequest()
-                                        .headers(this::setCommonHeaders)
-                                        .body("Malformed request syntax. " +
-                                                "Expects: airports/lookup?airport=<string>&matches=<positive int>");
-                            }
-                            String lang = request.pathVariable("lang");
-                            String airport = request.param("airport").get();
-                            int matches = Integer.parseInt(request.param("matches").get());
-                            return ServerResponse.ok()
+                .GET("{lang}/airports/lookup", WebConfig::ifLangIsSupported, request -> {
+                    if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
+                        String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
+                        if (reqETag.equals(eTag)) {
+                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
                                     .headers(this::setCommonHeaders)
-                                    .body(repo.getAirportsLike(airport, matches, lang));
-                        })
-                        .route(RequestPredicates.all(), WebConfig::methodNotAllowed)
-                        .onError(Throwable.class, WebConfig::logStackTrace)
-                        .build()).build();
+                                    .build();
+                        }
+                    }
+                    if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
+                        Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
+                        if (reqLastModified.equals(lastModified)) {
+                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                                    .headers(this::setCommonHeaders)
+                                    .build();
+                        }
+                    }
+                    if (requestIsMalformed(request)) {
+                        return ServerResponse
+                                .badRequest()
+                                .headers(this::setCommonHeaders)
+                                .body("Malformed request syntax. " +
+                                        "Expects: airports/lookup?airport=<string>&matches=<positive int>");
+                    }
+                    String lang = request.pathVariable("lang");
+                    String airport = request.param("airport").get();
+                    int matches = Integer.parseInt(request.param("matches").get());
+                    return ServerResponse.ok()
+                            .headers(this::setCommonHeaders)
+                            .body(repo.getAirportsLike(airport, matches, lang));
+                })
+                .onError(Throwable.class, WebConfig::logStackTrace)
+                .build();
     }
 
     private static boolean ifLangIsSupported(ServerRequest request) {
