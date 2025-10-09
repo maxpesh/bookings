@@ -2,13 +2,18 @@ package com.github.maxpesh.airports;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.*;
-import org.springframework.web.servlet.function.*;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.function.RouterFunction;
+import org.springframework.web.servlet.function.RouterFunctions;
+import org.springframework.web.servlet.function.ServerRequest;
+import org.springframework.web.servlet.function.ServerResponse;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -21,7 +26,7 @@ class WebConfig {
     @Bean
     RouterFunction<ServerResponse> router(Repository repo) {
         return RouterFunctions.route()
-                .GET("{lang}/airports/lookup", WebConfig::ifLangIsSupported, request -> {
+                .GET("{lang}/airports/lookup", WebConfig::supportLanguage, request -> {
                     if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
                         String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
                         if (reqETag.equals(eTag)) {
@@ -38,16 +43,13 @@ class WebConfig {
                                     .build();
                         }
                     }
-                    if (requestIsMalformed(request)) {
-                        return ServerResponse
-                                .badRequest()
-                                .body("Malformed request syntax. " +
-                                        "Expects: airports/lookup?airport=<string>&matches=<positive int>");
+                    if (!parametersAreValid(request)) {
+                        return ServerResponse.badRequest().build();
                     }
                     String lang = request.pathVariable("lang");
-                    String airport = request.param("airport").get();
-                    int matches = Integer.parseInt(request.param("matches").get());
-                    List<Airport> airports = repo.getAirportsLike(airport, matches, lang);
+                    String airport = request.param("airport").orElse("");
+                    int limit = Integer.parseInt(request.param("limit").orElse("5"));
+                    List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
                     if (airports.isEmpty()) {
                         return ServerResponse.noContent().build();
                     }
@@ -60,22 +62,14 @@ class WebConfig {
                 .build();
     }
 
-    private static boolean ifLangIsSupported(ServerRequest request) {
+    private static boolean supportLanguage(ServerRequest request) {
         String lang = request.pathVariable("lang");
         return lang.equals("en") || lang.equals("ru");
     }
 
-    private static boolean requestIsMalformed(ServerRequest request) {
-        Optional<String> airportOpt = request.param("airport");
-        Optional<String> matchesOpt = request.param("matches");
-        try {
-            if (airportOpt.isEmpty() || matchesOpt.isEmpty() || Integer.parseInt(matchesOpt.get()) < 1) {
-                return true;
-            }
-        } catch (NumberFormatException e) {
-            return true;
-        }
-        return false;
+    private static boolean parametersAreValid(ServerRequest request) {
+        int limit = Integer.parseInt(request.param("limit").orElse("3"));
+        return limit >= 1 && limit <= 25;
     }
 
     private void cacheControl(HttpHeaders headers) {
@@ -83,12 +77,6 @@ class WebConfig {
         headers.setETag(eTag);
         headers.setCacheControl(CacheControl
                 .maxAge(Duration.ofHours(1)));
-    }
-
-    private static ServerResponse methodNotAllowed(ServerRequest request) {
-        return ServerResponse.status(HttpStatus.METHOD_NOT_ALLOWED)
-                .allow(HttpMethod.GET)
-                .build();
     }
 
     private static ServerResponse logStackTrace(Throwable throwable, ServerRequest request) {
