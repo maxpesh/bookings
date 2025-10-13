@@ -26,7 +26,7 @@ class WebConfig {
     @Bean
     RouterFunction<ServerResponse> router(Repository repo) {
         return RouterFunctions.route()
-                .GET("{lang}/airports/lookup", WebConfig::supportLanguage, request -> {
+                .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, request -> {
                     if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
                         String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
                         if (reqETag.equals(eTag)) {
