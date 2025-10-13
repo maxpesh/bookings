@@ -43,12 +43,9 @@ class WebConfig {
                                     .build();
                         }
                     }
-                    if (!parametersAreValid(request)) {
-                        return ServerResponse.badRequest().build();
-                    }
                     String lang = request.pathVariable("lang");
                     String airport = request.param("airport").orElse("");
-                    int limit = Integer.parseInt(request.param("limit").orElse("5"));
+                    int limit = request.param("limit").map(Integer::parseInt).filter(v -> v >= 1 && v <= 10).orElse(5);
                     List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
                     if (airports.isEmpty()) {
                         return ServerResponse.noContent().build();
@@ -65,11 +62,6 @@ class WebConfig {
     private static boolean supportLanguage(ServerRequest request) {
         String lang = request.pathVariable("lang");
         return lang.equals("en") || lang.equals("ru");
-    }
-
-    private static boolean parametersAreValid(ServerRequest request) {
-        int limit = Integer.parseInt(request.param("limit").orElse("3"));
-        return limit >= 1 && limit <= 25;
     }
 
     private void cacheControl(HttpHeaders headers) {
