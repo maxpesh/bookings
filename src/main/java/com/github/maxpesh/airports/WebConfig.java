@@ -1,16 +1,23 @@
 package com.github.maxpesh.airports;
 
+import com.fasterxml.jackson.databind.MapperFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.github.maxpesh.Language;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.RouterFunctions;
 import org.springframework.web.servlet.function.ServerRequest;
 import org.springframework.web.servlet.function.ServerResponse;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -43,7 +50,7 @@ class WebConfig {
                                     .build();
                         }
                     }
-                    String lang = request.pathVariable("lang");
+                    Language lang = Language.valueOf(request.pathVariable("lang").toUpperCase());
                     String airport = request.param("airport").orElse("");
                     int limit = request.param("limit").map(Integer::parseInt).filter(v -> v >= 1 && v <= 10).orElse(5);
                     List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
@@ -55,8 +62,25 @@ class WebConfig {
                             .contentType(MediaType.APPLICATION_JSON)
                             .body(airports);
                 })
+                .POST("private/airports", request -> {
+                    AirportData airport = request.body(AirportData.class);
+                    if (airport.isMalformed()) {
+                        return ServerResponse.badRequest().build();
+                    }
+                    String airportCode = repo.saveAirport(airport);
+                    return ServerResponse.created(request.uriBuilder().path("/{airportCode}").build(airportCode))
+                            .build();
+                })
                 .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();
+    }
+
+    @Bean
+    MappingJackson2HttpMessageConverter httpJsonMsgConverter() {
+        ObjectMapper objMapper = JsonMapper.builder()
+                .addModule(new JavaTimeModule())
+                .enable(MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS).build();
+        return new MappingJackson2HttpMessageConverter(objMapper);
     }
 
     private static boolean supportLanguage(ServerRequest request) {

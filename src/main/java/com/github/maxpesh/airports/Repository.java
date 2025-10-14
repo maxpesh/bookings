@@ -1,8 +1,8 @@
 package com.github.maxpesh.airports;
 
+import com.github.maxpesh.Language;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import org.postgresql.PGConnection;
 import org.postgresql.PGStatement;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.postgresql.geometric.PGpoint;
@@ -11,7 +11,6 @@ import org.postgresql.jdbc.PreferQueryMode;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.sql.BatchUpdateException;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
@@ -51,13 +50,13 @@ class Repository implements AutoCloseable {
         dataSource = new HikariDataSource(conf);
     }
 
-    List<Airport> getAirportsLike(String airportName, int limit, String lang) {
+    List<Airport> getAirportsLike(String airportName, int limit, Language lang) {
         var airports = new ArrayList<Airport>();
         try (var conn = dataSource.getConnection()) {
             try (PreparedStatement stmt = conn.prepareStatement("""
                     set plan_cache_mode = 'force_generic_plan';\
                     set bookings.lang = '%s'"""
-                    .formatted(lang))) {
+                    .formatted(lang.toString()))) {
                 var pgStmt = stmt.unwrap(PGStatement.class);
                 pgStmt.setPrepareThreshold(1); // prepare on the server immediately
                 stmt.executeUpdate();
@@ -129,5 +128,9 @@ class Repository implements AutoCloseable {
                 }
             }
         }
+    }
+
+    String saveAirport(AirportData airport) {
+        return "123";
     }
 }
