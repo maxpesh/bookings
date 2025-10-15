@@ -17,7 +17,6 @@ import org.springframework.web.servlet.function.RouterFunctions;
 import org.springframework.web.servlet.function.ServerRequest;
 import org.springframework.web.servlet.function.ServerResponse;
 
-import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -67,9 +66,9 @@ class WebConfig {
                     if (airport.isMalformed()) {
                         return ServerResponse.badRequest().build();
                     }
-                    String airportCode = repo.saveAirport(airport);
-                    return ServerResponse.created(request.uriBuilder().path("/{airportCode}").build(airportCode))
-                            .build();
+                    AirportData savedAirport = repo.saveAirport(airport);
+                    return ServerResponse.created(request.uriBuilder().path("/{airportCode}").build(savedAirport.code()))
+                            .body(savedAirport);
                 })
                 .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();

@@ -130,7 +130,8 @@ class Repository implements AutoCloseable {
         }
     }
 
-    String saveAirport(AirportData airport) {
-        return "123";
+    AirportData saveAirport(AirportData airport) {
+        AirportData savedAirport = new AirportData("123", airport.langToName(), airport.langToCity(), airport.coordinates(), airport.timezone());
+        return savedAirport;
     }
 }
