@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.maxpesh.Language;
+import jakarta.servlet.ServletException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
@@ -12,11 +13,16 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.validation.BeanPropertyBindingResult;
+import org.springframework.validation.Errors;
+import org.springframework.validation.ValidationUtils;
+import org.springframework.validation.Validator;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.RouterFunctions;
 import org.springframework.web.servlet.function.ServerRequest;
 import org.springframework.web.servlet.function.ServerResponse;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -26,50 +32,13 @@ import java.util.logging.Logger;
 @Configuration
 class WebConfig {
     private static final Logger logger = Logger.getLogger(WebConfig.class.getName());
-    private Instant lastModified = Instant.now();
-    private String eTag = "deadbeef";
 
     @Bean
-    RouterFunction<ServerResponse> router(Repository repo) {
+    RouterFunction<ServerResponse> router() {
+        Handler handler = new Handler(new Repository(), new AirportValidator());
         return RouterFunctions.route()
-                .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, request -> {
-                    if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
-                        String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
-                        if (reqETag.equals(eTag)) {
-                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                                    .headers(this::cacheControl)
-                                    .build();
-                        }
-                    }
-                    if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
-                        Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
-                        if (reqLastModified.equals(lastModified)) {
-                            return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                                    .headers(this::cacheControl)
-                                    .build();
-                        }
-                    }
-                    Language lang = Language.valueOf(request.pathVariable("lang").toUpperCase());
-                    String airport = request.param("airport").orElse("");
-                    int limit = request.param("limit").map(Integer::parseInt).filter(v -> v >= 1 && v <= 10).orElse(5);
-                    List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
-                    if (airports.isEmpty()) {
-                        return ServerResponse.noContent().build();
-                    }
-                    return ServerResponse.ok()
-                            .headers(this::cacheControl)
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .body(airports);
-                })
-                .POST("private/airports", request -> {
-                    AirportData airport = request.body(AirportData.class);
-                    if (airport.isMalformed()) {
-                        return ServerResponse.badRequest().build();
-                    }
-                    AirportData savedAirport = repo.saveAirport(airport);
-                    return ServerResponse.created(request.uriBuilder().path("/{airportCode}").build(savedAirport.code()))
-                            .body(savedAirport);
-                })
+                .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, handler::lookupAirports)
+                .POST("private/airports/v1", handler::createAirport)
                 .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();
     }
@@ -87,17 +56,86 @@ class WebConfig {
         return lang.equals("en") || lang.equals("ru");
     }
 
-    private void cacheControl(HttpHeaders headers) {
-        headers.setLastModified(lastModified);
-        headers.setETag(eTag);
-        headers.setCacheControl(CacheControl
-                .maxAge(Duration.ofHours(1)));
-    }
-
     private static ServerResponse logStackTrace(Throwable throwable, ServerRequest request) {
         logger.log(Level.SEVERE, throwable, throwable::getMessage);
         return ServerResponse.
                 status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .build();
+    }
+
+    private static class Handler {
+        private Validator validator;
+        private Repository repo;
+        private Instant lastModified = Instant.now();
+        private String eTag = "deadbeef";
+
+        Handler(Repository repo, Validator validator) {
+            this.validator = validator;
+            this.repo = repo;
+        }
+
+        private ServerResponse lookupAirports(ServerRequest request) {
+            if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
+                String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
+                if (reqETag.equals(eTag)) {
+                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                            .headers(this::cacheControl)
+                            .build();
+                }
+            }
+            if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
+                Instant reqLastModified = Instant.parse(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0));
+                if (reqLastModified.equals(lastModified)) {
+                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
+                            .headers(this::cacheControl)
+                            .build();
+                }
+            }
+            Language lang = Language.valueOf(request.pathVariable("lang").toUpperCase());
+            String airport = request.param("airport").orElse("");
+            int limit = request.param("limit").map(Integer::parseInt).filter(v -> v >= 1 && v <= 10).orElse(5);
+            List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
+            if (airports.isEmpty()) {
+                return ServerResponse.noContent().build();
+            }
+            return ServerResponse.ok()
+                    .headers(this::cacheControl)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(airports);
+        }
+
+        private ServerResponse createAirport(ServerRequest request) throws ServletException, IOException {
+            AirportData airport = request.body(AirportData.class);
+            Errors errors = new BeanPropertyBindingResult(airport, "airport");
+            validator.validate(airport, errors);
+            if (errors.hasErrors()) {
+                return ServerResponse.badRequest().body(errors.getAllErrors());
+            }
+            AirportData savedAirport = repo.saveAirport(airport);
+            return ServerResponse.created(request.uriBuilder().path("/{airportCode}").build(savedAirport.code()))
+                    .body(savedAirport);
+        }
+
+        private void cacheControl(HttpHeaders headers) {
+            headers.setLastModified(lastModified);
+            headers.setETag(eTag);
+            headers.setCacheControl(CacheControl
+                    .maxAge(Duration.ofHours(1)));
+        }
+    }
+
+    private static class AirportValidator implements Validator {
+        @Override
+        public boolean supports(Class<?> clazz) {
+            return AirportData.class.equals(clazz);
+        }
+
+        @Override
+        public void validate(Object obj, Errors e) {
+            ValidationUtils.rejectIfEmpty(e, "langToName", "airport_name.required", "airport_name cannot be empty");
+            ValidationUtils.rejectIfEmpty(e, "langToCity", "city.required", "city cannot be empty");
+            ValidationUtils.rejectIfEmpty(e, "coordinates", "coordinates.required", "coordinates cannot be empty");
+            ValidationUtils.rejectIfEmpty(e, "timezone", "timezone.required", "timezone cannot be empty");
+        }
     }
 }

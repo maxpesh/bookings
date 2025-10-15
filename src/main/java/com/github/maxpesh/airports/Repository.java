@@ -23,7 +23,6 @@ import java.util.logging.Logger;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-@org.springframework.stereotype.Repository
 class Repository implements AutoCloseable {
     private static final Logger logger = Logger.getLogger(Repository.class.getName());
     private final HikariDataSource dataSource;
