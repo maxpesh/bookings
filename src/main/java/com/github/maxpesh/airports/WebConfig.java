@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.maxpesh.Language;
 import jakarta.servlet.ServletException;
+import org.apache.commons.lang3.math.NumberUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
@@ -26,6 +27,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -35,10 +37,11 @@ class WebConfig {
 
     @Bean
     RouterFunction<ServerResponse> router() {
-        Handler handler = new Handler(new Repository(), new AirportValidator());
+        Repository repo = new Repository();
+
         return RouterFunctions.route()
-                .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, handler::lookupAirports)
-                .POST("private/airports/v1", handler::createAirport)
+                .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, new LookupHandler(repo)::handle)
+                .POST("private/airports/v1", new CreateHandler(repo, new AirportValidator())::handle)
                 .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();
     }
@@ -62,19 +65,17 @@ class WebConfig {
                 status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .build();
     }
-
-    private static class Handler {
-        private Validator validator;
-        private Repository repo;
+    
+    private static class LookupHandler {
+        private final Repository repo;
         private Instant lastModified = Instant.now();
         private String eTag = "deadbeef";
 
-        Handler(Repository repo, Validator validator) {
-            this.validator = validator;
+        public LookupHandler(Repository repo) {
             this.repo = repo;
         }
 
-        private ServerResponse lookupAirports(ServerRequest request) {
+        ServerResponse handle(ServerRequest request) {
             if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
                 String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
                 if (reqETag.equals(eTag)) {
@@ -91,9 +92,19 @@ class WebConfig {
                             .build();
                 }
             }
+            if (request.param("airport").isEmpty()) {
+                return ServerResponse
+                        .badRequest()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(Map.of("Errors", List.of("Query parameter filter cannot be null or empty.")));
+            }
             Language lang = Language.valueOf(request.pathVariable("lang").toUpperCase());
-            String airport = request.param("airport").orElse("");
-            int limit = request.param("limit").map(Integer::parseInt).filter(v -> v >= 1 && v <= 10).orElse(5);
+            String airport = request.param("airport").get();
+            int limit = request.param("limit")
+                    .filter(NumberUtils::isCreatable)
+                    .map(Integer::parseInt)
+                    .filter(v -> v >= 1 && v <= 20)
+                    .orElse(20);
             List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
             if (airports.isEmpty()) {
                 return ServerResponse.noContent().build();
@@ -104,7 +115,24 @@ class WebConfig {
                     .body(airports);
         }
 
-        private ServerResponse createAirport(ServerRequest request) throws ServletException, IOException {
+        private void cacheControl(HttpHeaders headers) {
+            headers.setLastModified(lastModified);
+            headers.setETag(eTag);
+            headers.setCacheControl(CacheControl
+                    .maxAge(Duration.ofHours(1)));
+        }
+    }
+
+    private static class CreateHandler {
+        private final Repository repo;
+        private final Validator validator;
+
+        public CreateHandler(Repository repo, AirportValidator validator) {
+            this.repo = repo;
+            this.validator = validator;
+        }
+
+        ServerResponse handle(ServerRequest request) throws ServletException, IOException {
             AirportData airport = request.body(AirportData.class);
             Errors errors = new BeanPropertyBindingResult(airport, "airport");
             validator.validate(airport, errors);
@@ -114,13 +142,6 @@ class WebConfig {
             AirportData savedAirport = repo.saveAirport(airport);
             return ServerResponse.created(request.uriBuilder().path("/{airportCode}").build(savedAirport.code()))
                     .body(savedAirport);
-        }
-
-        private void cacheControl(HttpHeaders headers) {
-            headers.setLastModified(lastModified);
-            headers.setETag(eTag);
-            headers.setCacheControl(CacheControl
-                    .maxAge(Duration.ofHours(1)));
         }
     }
 
