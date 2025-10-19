@@ -40,8 +40,8 @@ class WebConfig {
         Repository repo = new Repository();
 
         return RouterFunctions.route()
-                .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, new LookupHandler(repo)::handle)
-                .POST("private/airports/v1", new CreateHandler(repo, new AirportValidator())::handle)
+                .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, new LookupAirportHandler(repo)::handle)
+                .POST("private/airports/v1", new CreateAirportHandler(repo, new AirportValidator())::handle)
                 .onError(Throwable.class, WebConfig::logStackTrace)
                 .build();
     }
@@ -65,13 +65,13 @@ class WebConfig {
                 status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .build();
     }
-    
-    private static class LookupHandler {
+
+    private static class LookupAirportHandler {
         private final Repository repo;
         private Instant lastModified = Instant.now();
         private String eTag = "deadbeef";
 
-        public LookupHandler(Repository repo) {
+        public LookupAirportHandler(Repository repo) {
             this.repo = repo;
         }
 
@@ -123,11 +123,11 @@ class WebConfig {
         }
     }
 
-    private static class CreateHandler {
+    private static class CreateAirportHandler {
         private final Repository repo;
         private final Validator validator;
 
-        public CreateHandler(Repository repo, AirportValidator validator) {
+        public CreateAirportHandler(Repository repo, AirportValidator validator) {
             this.repo = repo;
             this.validator = validator;
         }
@@ -153,6 +153,7 @@ class WebConfig {
 
         @Override
         public void validate(Object obj, Errors e) {
+            ValidationUtils.rejectIfEmpty(e, "code", "airport_code.required", "airport_code cannot be empty");
             ValidationUtils.rejectIfEmpty(e, "langToName", "airport_name.required", "airport_name cannot be empty");
             ValidationUtils.rejectIfEmpty(e, "langToCity", "city.required", "city cannot be empty");
             ValidationUtils.rejectIfEmpty(e, "coordinates", "coordinates.required", "coordinates cannot be empty");

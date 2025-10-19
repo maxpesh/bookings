@@ -1,19 +1,23 @@
 package com.github.maxpesh.airports;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.github.maxpesh.Language;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.postgresql.PGStatement;
+import org.postgresql.core.PgMessageType;
 import org.postgresql.ds.PGSimpleDataSource;
+import org.postgresql.fastpath.Fastpath;
 import org.postgresql.geometric.PGpoint;
 import org.postgresql.jdbc.PreferQueryMode;
+import org.postgresql.util.PGobject;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.SQLWarning;
+import java.sql.*;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +30,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 class Repository implements AutoCloseable {
     private static final Logger logger = Logger.getLogger(Repository.class.getName());
     private final HikariDataSource dataSource;
+    private final ObjectMapper jsonMapper = JsonMapper.builder().build();
 
     Repository() {
         Properties properties = readProperties();
@@ -95,6 +100,32 @@ class Repository implements AutoCloseable {
         return airports;
     }
 
+    AirportData saveAirport(AirportData airport) {
+        AirportData savedAirport = airport;
+        try (var conn = dataSource.getConnection()) {
+            try (PreparedStatement stmt = conn.prepareStatement("""
+                    insert into airports_data(airport_code, airport_name, city, coordinates, timezone)
+                    values(?,?,?,?,?)
+                    """)) {
+                stmt.setString(1, airport.code());
+                stmt.setObject(2, jsonMapper.writeValueAsString(airport.langToName()), Types.OTHER);
+                stmt.setObject(3, jsonMapper.writeValueAsString(airport.langToCity()), Types.OTHER);
+                stmt.setObject(4, new PGpoint(airport.coordinates().x(), airport.coordinates().y()));
+                stmt.setObject(5, airport.timezone().toString());
+                if (stmt.executeUpdate() != 1) {
+                    throw new RuntimeException("Insert failed");
+                }
+                logWarnings(conn.getWarnings(), stmt.getWarnings());
+                conn.rollback();
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+        return savedAirport;
+    }
+
     private static Properties readProperties() {
         var props = new Properties();
         var dbPropsUrl = Thread.currentThread().getContextClassLoader().getResource("database.properties");
@@ -127,10 +158,5 @@ class Repository implements AutoCloseable {
                 }
             }
         }
-    }
-
-    AirportData saveAirport(AirportData airport) {
-        AirportData savedAirport = new AirportData("123", airport.langToName(), airport.langToCity(), airport.coordinates(), airport.timezone());
-        return savedAirport;
     }
 }
