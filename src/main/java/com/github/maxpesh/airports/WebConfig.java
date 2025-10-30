@@ -10,6 +10,7 @@ import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hc.client5.http.utils.DateUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -36,6 +37,7 @@ import java.util.logging.Logger;
 import static java.time.temporal.ChronoUnit.SECONDS;
 import static org.springframework.web.servlet.function.RequestPredicates.path;
 
+@Import(WebSecurityConfig.class)
 @Configuration
 class WebConfig {
     private static final Logger logger = Logger.getLogger(WebConfig.class.getName());

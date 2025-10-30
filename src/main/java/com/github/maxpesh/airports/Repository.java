@@ -116,7 +116,7 @@ class Repository implements AutoCloseable {
                     throw new RuntimeException("Insert failed");
                 }
                 logWarnings(conn.getWarnings(), stmt.getWarnings());
-                conn.rollback();
+                conn.commit();
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
