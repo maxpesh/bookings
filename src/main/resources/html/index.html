@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title id="page-title">Flight Booking (Simplified)</title>
     <style>
+        /* Styles omitted for brevity */
         body {
         font-family: sans-serif;
         margin: 0;
@@ -17,9 +18,8 @@
         padding: 20px;
         background-color: white;
         border: 1px solid #ccc;
-        /* Set position context for absolute positioning of language selector */
         position: relative;
-        padding-bottom: 40px; /* Add space at the bottom for the language selector */
+        padding-bottom: 40px;
         }
         .header {
         display: flex;
@@ -36,7 +36,6 @@
         text-decoration: none;
         color: #007bff;
         }
-        /* --- Language Selector Styling (Text Links) --- */
         #language-select-container {
         position: absolute;
         bottom: 10px;
@@ -46,14 +45,14 @@
         }
         .lang-option {
         text-decoration: none;
-        color: #666; /* Default subtle color */
+        color: #666;
         margin: 0 2px;
         padding: 2px;
         cursor: pointer;
         transition: color 0.1s ease;
         }
         .lang-option.active {
-        color: #007bff; /* Highlight color for selected language */
+        color: #007bff;
         font-weight: bold;
         }
         .lang-separator {
@@ -97,6 +96,9 @@
         color: #666;
         display: block;
         }
+        /* CRITICAL: FOUC Fix */
+        body { visibility: hidden; opacity: 0; transition: opacity 0.5s; }
+        body.ready { visibility: visible; opacity: 1; }
     </style>
     <script>
         const translations = {
@@ -112,6 +114,9 @@
 
         const localStorageKey = 'userLanguagePreference';
         const formBaseAction = 'search-flights';
+
+        // **NEW** Caching Key Prefix for localStorage
+        const cacheKeyPrefix = 'airportCache_';
 
         let currentLang;
 
@@ -233,7 +238,7 @@
     </div>
 </div>
 <script>
-    // Note: currentLang is globally defined in the HEAD script.
+    // Note: currentLang, cacheKeyPrefix are globally defined in the HEAD script.
 
     function applyLocalization(lang) {
         const t = translations[lang];
@@ -276,11 +281,8 @@
             activeLink.classList.add('active');
         }
 
-        // **CRITICAL FIX:** Update Form Action
+        // Update Form Action
         const form = document.getElementById('flight-form');
-
-        // Final attempt to force absolute path: / + lang + / + search-flights
-        // The empty 'action=""' in HTML forces the browser to look for the absolute path here.
         form.action = `/${lang}/${formBaseAction}`;
     }
 
@@ -300,37 +302,96 @@
         history.pushState(null, '', newPath);
     }
 
-    async function searchAirport(inputElement, datalistId) {
-        // ... (Airport search logic remains the same)
-        const airport = inputElement.value.trim();
+    // Function to update the Datalist with fetched/cached data
+    function updateDatalist(datalistId, airports) {
         const datalist = document.getElementById(datalistId);
-
         datalist.innerHTML = '';
+        if (Array.isArray(airports)) {
+            airports.forEach(airport => {
+                const option = document.createElement('option');
+                const value = `${airport.name} (${airport.code}) - ${airport.city}`;
+                option.value = value;
+                datalist.appendChild(option);
+            });
+        }
+    }
 
-        if (airport.length < 3) {
+    // **MODIFIED** searchAirport to include caching logic
+    async function searchAirport(inputElement, datalistId) {
+        const airportQuery = inputElement.value.trim();
+        const cacheKey = cacheKeyPrefix + airportQuery;
+
+        if (airportQuery.length < 3) {
+            document.getElementById(datalistId).innerHTML = '';
             return;
         }
 
-        const apiEndpoint = `airports/lookup/v1?airport=${encodeURIComponent(airport)}`;
+        const apiEndpoint = `airports/lookup/v1?airport=${encodeURIComponent(airportQuery)}`;
+        const headers = {};
 
+        // 1. Check for cached headers and data
+        const cachedData = localStorage.getItem(cacheKey);
+        let cachedHeaders = {};
+
+        if (cachedData) {
+            try {
+                const cache = JSON.parse(cachedData);
+                cachedHeaders = cache.headers || {};
+
+                // Add conditional request headers
+                if (cachedHeaders.etag) {
+                    headers['If-None-Match'] = cachedHeaders.etag;
+                }
+                if (cachedHeaders.lastModified) {
+                    headers['If-Modified-Since'] = cachedHeaders.lastModified;
+                }
+
+                // Use cached data immediately if we have it,
+                // in case the server returns 304 (Not Modified)
+                updateDatalist(datalistId, cache.airports);
+            } catch (e) {
+                console.error("Error parsing cached data:", e);
+                localStorage.removeItem(cacheKey);
+            }
+        }
+
+        // 2. Make the fetch request with conditional headers
         try {
-            const response = await fetch(apiEndpoint);
+            const response = await fetch(apiEndpoint, { headers });
+
+            // 3. Handle 304 Not Modified
+            if (response.status === 304) {
+                // Data hasn't changed, already displayed cached results from step 1
+                return;
+            }
 
             if (!response.ok) {
                 console.error('API request failed:', response.statusText);
                 return;
             }
 
+            // 4. Handle 200 OK (New Data)
             const airports = await response.json();
+            updateDatalist(datalistId, airports); // Update datalist with new data
 
-            if (Array.isArray(airports)) {
-                airports.forEach(airport => {
-                    const option = document.createElement('option');
-                    const value = `${airport.name} (${airport.code}) - ${airport.city}`;
-                    option.value = value;
-                    datalist.appendChild(option);
-                });
+            // 5. Save new cache headers and data
+            const newEtag = response.headers.get('ETag');
+            const newLastModified = response.headers.get('Last-Modified');
+
+            const newCache = {
+                airports: airports,
+                headers: {}
+            };
+
+            if (newEtag) {
+                newCache.headers.etag = newEtag;
             }
+            if (newLastModified) {
+                newCache.headers.lastModified = newLastModified;
+            }
+
+            localStorage.setItem(cacheKey, JSON.stringify(newCache));
+
         } catch (error) {
             console.error('Error fetching airport data:', error);
         }

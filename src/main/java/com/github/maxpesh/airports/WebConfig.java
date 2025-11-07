@@ -7,7 +7,6 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.github.maxpesh.Language;
 import jakarta.servlet.ServletException;
 import org.apache.commons.lang3.math.NumberUtils;
-import org.apache.hc.client5.http.utils.DateUtils;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -81,43 +80,29 @@ class WebConfig {
         }
 
         ServerResponse handle(ServerRequest request) {
-            if (!request.headers().header(HttpHeaders.IF_NONE_MATCH).isEmpty()) {
-                String reqETag = request.headers().header(HttpHeaders.IF_NONE_MATCH).get(0);
-                if (reqETag.equals(eTag)) {
-                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                            .headers(this::cacheControl)
-                            .build();
+            return request.checkNotModified(lastModified, eTag).orElseGet(() -> {
+                if (request.param("airport").isEmpty()) {
+                    return ServerResponse
+                            .badRequest()
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .body(Map.of("Errors", List.of("Query parameter filter cannot be null or empty.")));
                 }
-            }
-            if (!request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).isEmpty()) {
-                Instant reqLastModified = DateUtils.parseDate(request.headers().header(HttpHeaders.IF_MODIFIED_SINCE).get(0), DateUtils.STANDARD_PATTERNS);
-                if (reqLastModified.equals(lastModified)) {
-                    return ServerResponse.status(HttpStatus.NOT_MODIFIED)
-                            .headers(this::cacheControl)
-                            .build();
+                Language lang = Language.valueOf(request.pathVariable("lang").toUpperCase());
+                String airport = request.param("airport").get();
+                int limit = request.param("limit")
+                        .filter(NumberUtils::isCreatable)
+                        .map(Integer::parseInt)
+                        .filter(v -> v >= 1 && v <= 20)
+                        .orElse(20);
+                List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
+                if (airports.isEmpty()) {
+                    return ServerResponse.noContent().build();
                 }
-            }
-            if (request.param("airport").isEmpty()) {
-                return ServerResponse
-                        .badRequest()
+                return ServerResponse.ok()
+                        .headers(this::cacheControl)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .body(Map.of("Errors", List.of("Query parameter filter cannot be null or empty.")));
-            }
-            Language lang = Language.valueOf(request.pathVariable("lang").toUpperCase());
-            String airport = request.param("airport").get();
-            int limit = request.param("limit")
-                    .filter(NumberUtils::isCreatable)
-                    .map(Integer::parseInt)
-                    .filter(v -> v >= 1 && v <= 20)
-                    .orElse(20);
-            List<Airport> airports = repo.getAirportsLike(airport, limit, lang);
-            if (airports.isEmpty()) {
-                return ServerResponse.noContent().build();
-            }
-            return ServerResponse.ok()
-                    .headers(this::cacheControl)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .body(airports);
+                        .body(airports);
+            });
         }
 
         private void cacheControl(HttpHeaders headers) {
