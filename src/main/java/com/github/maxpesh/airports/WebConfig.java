@@ -21,10 +21,7 @@ import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.Errors;
 import org.springframework.validation.ValidationUtils;
 import org.springframework.validation.Validator;
-import org.springframework.web.servlet.function.RouterFunction;
-import org.springframework.web.servlet.function.RouterFunctions;
-import org.springframework.web.servlet.function.ServerRequest;
-import org.springframework.web.servlet.function.ServerResponse;
+import org.springframework.web.servlet.function.*;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -45,8 +42,8 @@ class WebConfig {
     @Bean
     RouterFunction<ServerResponse> router() {
         Repository repo = new Repository();
-
         return RouterFunctions.route()
+                .resource(RequestPredicates.GET("{lang}/").and(WebConfig::supportLanguage), new ClassPathResource("html/index.html"))
                 .GET("{lang}/airports/lookup/v1", WebConfig::supportLanguage, new LookupAirportHandler(repo)::handle)
                 .POST("private/airports/v1", new CreateAirportHandler(repo, new AirportValidator())::handle)
                 .resource(path("/favicon.ico"), new ClassPathResource("favicon.ico"))
